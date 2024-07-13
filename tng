@@ -1,0 +1,388 @@
+#!/usr/bin/env bb
+
+(ns tasks-ng
+  (:require [babashka.fs :as fs]
+            [babashka.process :as process]
+            [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
+            [clojure.edn :as edn]
+            [clojure.string :as string]
+            [clojure.set :refer [map-invert]])
+  (:import [java.io FileNotFoundException]
+           [java.lang ProcessHandle]))
+
+(def log-file (str (System/getenv "HOME") \/ ".tasks-ng" \/ "log"))
+
+(def initial-state
+  {:next-id 1
+   :current-id 0
+   :tasks {0 {:id 0
+              :text "All tasks"}}})
+
+(def label-alphabet "asdfghjkl")
+
+(def stdout-tty?
+  (-> ["test" "-t" "1"]
+      (process/process {:out :inherit :env {}})
+      deref
+      :exit
+      zero?
+      not))
+
+(def no-color-env? (-> "NO_COLOR" System/getenv string/blank? not))
+
+(def use-color? (not (or stdout-tty? no-color-env?)))
+
+(defn current-task [state]
+  ((:tasks state) (:current-id state)))
+
+(defn equal-bins [n k]
+  (for [i (range k)
+        :let [add? (< i (mod n k))
+              remainder (if add? 1 0)
+              bin (+ (quot n k) remainder)]
+        :when (pos? bin)]
+    bin))
+
+(defn generate-labels
+  ([ids]
+   (into {} (map vector ids (generate-labels (count ids) ""))))
+  ([n prefix]
+   (flatten
+     (for [[bin-size label] (map vector (reverse (equal-bins n (count label-alphabet))) label-alphabet)]
+       (if (= bin-size 1)
+         (str prefix label)
+         (generate-labels bin-size (str prefix label)))))))
+
+(defn without-suffix [s suffix]
+  (if (string/ends-with? s suffix)
+    (subs s 0 (- (count s) (count suffix)))
+    s))
+
+(defn root? [task]
+  (zero? (:id task)))
+
+(defn leaf? [state task]
+  (let [id (:id task)]
+    (empty? (for [t (vals (:tasks state))
+                  :when (= (:parent-id t) id)]
+              t))))
+
+(defn find-task [state id]
+  (let [task (get-in state [:tasks id])]
+    (when (nil? task)
+      (throw (ex-info "task not found" {:id id})))
+    task))
+
+(defn resolve-id-ish [state id-ish]
+  (if (re-matches #"\d+" id-ish)
+    (:id ((:tasks state) (parse-long id-ish)))
+    (get (map-invert (:labels state)) id-ish)))
+
+;; This is a bit brute force for now
+(defn task-tree
+  ([tasks]
+   (task-tree tasks 0))
+  ([tasks id]
+   (let [child? (fn [task] (= (:parent-id task) id))
+         partitioned (group-by child? tasks)
+         children (partitioned true)
+         other (partitioned false)]
+     {:id id
+      :children (map (comp (partial task-tree other) :id) children)})))
+
+(defn update-labels [state]
+  (assoc state :labels (generate-labels (sort (keys (:tasks state))))))
+
+(defmulti transition (fn [_ event] (:type event)))
+
+(defmethod transition :task-added [s event]
+  (let [task (:task event)
+        id (:id task)
+        next-id (inc id)
+        current-id (if (:switch? event) id (:current-id s))]
+    (-> s
+        (assoc-in [:tasks id] task)
+        (assoc :next-id next-id
+               :current-id current-id)
+        (update-labels))))
+
+(defmethod transition :task-removed [s event]
+  (let [id (:task-id event)
+        current-id (if (= id (:current-id s))
+                     (:parent-id (current-task s))
+                     (:current-id s))]
+    (-> s
+      (update :tasks dissoc id)
+      (assoc :current-id current-id)
+      (update-labels))))
+
+(defmethod transition :task-switched [s event]
+  (assoc s :current-id (:task-id event)))
+
+(defmethod transition :task-edited [s event]
+  (assoc-in s [:tasks (:current-id s) :text] (:text event)))
+
+(defn load-state [file]
+  (try
+    (with-open [f (io/reader file)]
+      (reduce transition initial-state (map edn/read-string (line-seq f))))
+    (catch FileNotFoundException _
+      initial-state)))
+
+(defn store-events [file events]
+  (fs/create-dirs (fs/parent file))
+  (with-open [f (io/writer file :append true)]
+    (doseq [event events]
+      (.write f (prn-str event)))))
+
+(def color-codes
+  {:default-color 39
+   :gray 30
+   :yellow 33
+   :blue 34
+   :white 37})
+
+(def styles
+  {:default-style 22
+   :bold 1})
+
+(def control-codes (merge color-codes styles))
+
+(defn escape-sequence [n]
+  (when (and use-color? n) (str "\u001b[" (control-codes n) \m)))
+
+(defn render-markup
+  ([markup]
+   (render-markup markup :default-color :default-style))
+  ([markup color style]
+   (cond
+     (nil? markup)
+     ""
+     (string? markup)
+     markup
+     (coll? markup)
+     (let [tag (first markup)
+           new-color (if (color-codes tag) tag color)
+           new-style (if (styles tag) tag style)
+           [start end] (cond
+                         (not= new-color color) [new-color color]
+                         (not= new-style style) [new-style style]
+                         :else [nil nil])]
+       (str (escape-sequence start)
+            (apply str (for [element (rest markup)]
+                         (render-markup element new-color new-style)))
+            (escape-sequence end)))
+     :else
+     (throw (ex-info "bad markup" {:details markup})))))
+
+(defn length [markup]
+  (cond
+    (nil? markup) 0
+    (string? markup) (count markup)
+    (coll? markup) (apply + (map length (rest markup)))
+    :else (throw (ex-info "bad markup" {:details markup}))))
+
+(defn multi-line? [text]
+  (boolean (string/index-of text \newline)))
+
+(defn first-line [text]
+  (if (multi-line? text)
+    (subs text 0 (string/index-of text \newline))
+    text))
+
+(defn with-newline-at-eol [text]
+  (if (string/ends-with? text "\n")
+    text
+    (str text \newline)))
+
+(defn truncate [text max-length]
+  (if (<= (count text) max-length)
+    text
+    (str (subs text 0 (dec max-length)) "…")))
+
+(defn indented [text offset]
+  (let [padding (str \newline (string/join (repeat offset \space)))
+        lines (string/split text #"\n" -1)]
+    (string/join padding lines)))
+
+(defn markup-task
+  ([task]
+   (markup-task task {}))
+  ([task options]
+   (let [{:keys [expand? selected? label-map indent]
+          :or {expand? false
+               selected? false
+               label-map {}
+               indent 0}} options
+         id (:id task)
+         id-markup [:blue [:bold (str \# id)]
+                    (when-let [label (label-map id)]
+                      [:default-color "/" [:yellow [:bold label]]])]
+         text (if expand?
+                (indented (:text task) (+ (length id-markup)
+                                          1
+                                          (if selected? 2 0)
+                                          indent))
+                (truncate (first-line (:text task)) 50))]
+     [:div
+      id-markup
+      " "
+      (if selected?
+        [:white [:bold "> " text]]
+        [:white text])
+      (when (and (multi-line? (:text task)) (not expand?))
+        [:gray [:bold "  [+]"]])])))
+
+(defn execute-editor [content]
+  (let [filename (str (System/getenv "XDG_RUNTIME_DIR") \/
+                      "tng-edit-" (.pid (ProcessHandle/current)) ".tmp")
+        editor (or (System/getenv "EDITOR") "vim")]
+    (spit filename content)
+    (let [exit-code (-> [editor filename]
+                        (process/process {:in :inherit :out :inherit :err :inherit})
+                        deref
+                        :exit)
+          data (slurp filename)]
+      (when (zero? exit-code)
+        data))))
+
+(defn task-path
+  ([state]
+   (task-path state (:current-id state)))
+  ([state id]
+   (let [task (find-task state id)]
+     (if-let [parent-id (:parent-id task)]
+       (conj (task-path state parent-id) task)
+       [task]))))
+
+
+(defn status [args state]
+  (let [message "currently on "]
+    {:output [:div message (markup-task
+                             (current-task state)
+                             {:expand? true
+                              :indent (count message)})]}))
+
+(defn stack [args state]
+  {:output
+   (cons
+     :div
+     (interpose
+       "\n"
+       (for [[level task] (map-indexed vector (task-path state))]
+         [:div
+          (string/join (repeat (* 2 level) \space))
+          (markup-task task {:label-map (:labels state)
+                             :selected? (= (:id task) (:current-id state))})])))})
+
+(defn render-tree-node
+  ([state node]
+   (cons :div (render-tree-node state node 0)))
+  ([state node level]
+   (let [indent (string/join (repeat (* 2 level) \space))
+         id (:id node)
+         children (sort-by :id (:children node))
+         options {:label-map (:labels state)
+                  :selected? (= id (:current-id state))}]
+     (cons
+       [:div indent (markup-task (find-task state id) options) "\n"]
+       (mapcat #(render-tree-node state % (inc level)) children)))))
+
+(defn tree [args state]
+  {:output (render-tree-node state (task-tree (vals (:tasks state))))})
+
+(defn list- [args state]
+  {:output (render-tree-node state (task-tree (vals (:tasks state)) (:current-id state)))})
+
+(defn push
+  ([args state]
+   (push args state true))
+  ([args state switch?]
+   (if-let [text (if (seq args)
+                   (string/join \space args)
+                   (execute-editor ""))]
+     (let [id (:next-id state)
+           task {:id id
+                 :parent-id (:current-id state)
+                 :text text}
+           event {:time (System/currentTimeMillis)
+                  :type :task-added
+                  :switch? switch?
+                  :task task}
+           new-state (transition state event)
+           options (if switch? {} {:label-map (:labels new-state)})
+           verb (if switch? "pushed" "created")]
+       {:output [:div verb " " (markup-task (find-task new-state id) options)]
+        :events [event]})
+     {:error? true
+      :output "editor aborted"})))
+
+(defn create [args state]
+  (push args state false))
+
+(defn pop- [args state]
+  (let [task (current-task state)]
+    (cond
+      (root? task) {:error? true
+                    :output "cannot pop root task"}
+      (not (leaf? state task)) {:error? true
+                                :output "cannot pop non-leaf task"}
+      :else (let [event {:time (System/currentTimeMillis)
+                         :type :task-removed
+                         :task-id (:current-id state)}
+                  parent-task ((:tasks state) (:parent-id task))
+                  new-state (transition state event)]
+              {:output [:div "back on " (markup-task (current-task new-state))]
+               :events [event]}))))
+
+(defn switch [args state]
+  (if-let [id (resolve-id-ish state (or (first args) ""))]
+    (let [event {:time (System/currentTimeMillis)
+                 :type :task-switched
+                 :task-id id}
+          new-state (transition state event)]
+      {:output [:div "switched to " (markup-task (current-task new-state))]
+       :events [event]})
+    {:error? true
+     :output "invalid id or label"}))
+
+(defn edit [args state]
+  (if-let [text (execute-editor (:text (current-task state)))]
+    (let [event {:time (System/currentTimeMillis)
+                 :type :task-edited
+                 :task-id (:current-id state)
+                 :text (without-suffix text "\n")}
+          new-state (transition state event)
+          message "edited "]
+      {:output [:div message (markup-task
+                               (current-task new-state)
+                               {:expand? true
+                                :indent (count message)})]
+       :events [event]})
+    {:error? true
+     :output "editor aborted"}))
+
+(defn dispatch-command [command args state]
+  (let [f ({"status" status
+            "push" push
+            "create" create
+            "pop" pop-
+            "list" list-
+            "stack" stack
+            "tree" tree
+            "switch" switch
+            "edit" edit} command)]
+    (if (nil? f)
+      {:error? true
+       :output (str "no such command: " command)}
+      (f args state))))
+
+(defn run [args]
+  (let [result (dispatch-command (or (first args) "status") (rest args) (load-state log-file))]
+    (println (render-markup (:output result)))
+    (when-let [events (:events result)]
+      (store-events log-file events))
+    (System/exit (if (:error? result) 1 0))))
+
+(run *command-line-args*)
