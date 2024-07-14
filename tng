@@ -11,7 +11,7 @@
   (:import [java.io FileNotFoundException]
            [java.lang ProcessHandle]))
 
-(def version "0.7.0")
+(def version "0.8.0")
 
 (def log-file (str (System/getenv "HOME") \/ ".tng" \/ "log"))
 
@@ -365,27 +365,62 @@
     {:error? true
      :output "editor aborted"}))
 
+(declare commands)
+
+(defn help [args state]
+  {:output
+   [:div
+    "tng version " [:white version] " (https://github.com/pb-/tng)\n\n"
+    (cons :div (for [{:keys [command synopsis help]} commands]
+                 [:div "  " [:white [:bold (or synopsis command)]] "\n    " help "\n\n"]))]})
+
+(def commands
+  [{:command "status"
+    :fn status
+    :help "show the currently selected task in full detail (default command)"}
+   {:command "push"
+    :synopsis "push [TASK DESCRIPTION]"
+    :fn push
+    :help "create a new sub task under the current task and switch to it, with an optional task description"}
+   {:command "pop"
+    :fn pop-
+    :help "remove the current task and switch to the task's parent task"}
+   {:command "tree"
+    :fn tree
+    :help "show the entire tree of tasks"}
+   {:command "switch"
+    :synopsis "switch ID-ISH"
+    :fn switch
+    :help "switch to the specified task, can be the decimal task number or the alphabetic label"}
+   {:command "edit"
+    :fn edit
+    :help "edit the current tasks's description using $EDITOR"}
+   {:command "create"
+    :synopsis "create [TASK DESCRIPTION]"
+    :fn create
+    :help "like 'push' but does not switch to the created task"}
+   {:command "stack"
+    :fn stack
+    :help "show the stack/path from the current task to the root task"}
+   {:command "list"
+    :fn list-
+    :help "show the current task and its sub tasks"}
+   {:command "help"
+    :fn help
+    :help "show this help and version"}])
+
 (defn dispatch-command [command args state]
-  (let [commands {"status" status
-                  "push" push
-                  "create" create
-                  "pop" pop-
-                  "list" list-
-                  "stack" stack
-                  "tree" tree
-                  "switch" switch
-                  "edit" edit}
-        candidates (filter #(string/starts-with? % command) (keys commands))]
+  (let [candidates (filter #(string/starts-with? (:command %) command) commands)]
     (cond
       (empty? candidates)
       {:error? true
-       :output (str "no such command: " command)}
+       :output (format "'%s' is not a command, try help" command)}
       (> (count candidates) 1)
       {:error? true
        :output (format "'%s' is ambigious, could be %s"
-                       command (string/join ", " (sort candidates)))}
+                       command (string/join ", " (sort (map :command candidates))))}
       :else
-      ((commands (first candidates)) args state))))
+      ((:fn (first candidates)) args state))))
 
 (defn run [args]
   (let [result (dispatch-command (or (first args) "status") (rest args) (load-state log-file))]
