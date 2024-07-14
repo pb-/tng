@@ -7,7 +7,7 @@
 
 ## Installation
 
-[Babashka](https://babashka.org/) is required on your system to run `tng`. Otherwise simply download `tng` and make it executable:
+[Babashka](https://babashka.org/) is required on your system to run `tng`. Otherwise simply download [`tng`](https://raw.githubusercontent.com/pb-/tng/master/tng) and make it executable:
 
 ```shell
 $ curl https://raw.githubusercontent.com/pb-/tng/master/tng > tng
