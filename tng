@@ -366,19 +366,26 @@
      :output "editor aborted"}))
 
 (defn dispatch-command [command args state]
-  (let [f ({"status" status
-            "push" push
-            "create" create
-            "pop" pop-
-            "list" list-
-            "stack" stack
-            "tree" tree
-            "switch" switch
-            "edit" edit} command)]
-    (if (nil? f)
+  (let [commands {"status" status
+                  "push" push
+                  "create" create
+                  "pop" pop-
+                  "list" list-
+                  "stack" stack
+                  "tree" tree
+                  "switch" switch
+                  "edit" edit}
+        candidates (filter #(string/starts-with? % command) (keys commands))]
+    (cond
+      (empty? candidates)
       {:error? true
        :output (str "no such command: " command)}
-      (f args state))))
+      (> (count candidates) 1)
+      {:error? true
+       :output (format "'%s' is ambigious, could be %s"
+                       command (string/join ", " (sort candidates)))}
+      :else
+      ((commands (first candidates)) args state))))
 
 (defn run [args]
   (let [result (dispatch-command (or (first args) "status") (rest args) (load-state log-file))]
