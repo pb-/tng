@@ -365,7 +365,8 @@
    [:div
     "tng version " [:white version] " (https://github.com/pb-/tng)\n\n"
     (cons :div (for [{:keys [command synopsis help]} commands]
-                 [:div "  " [:white [:bold (or synopsis command)]] "\n    " help "\n\n"]))]})
+                 [:div "  " [:white [:bold (or synopsis command)]] "\n    " help "\n\n"]))
+    "Commands can be abbreviated by typing a unique prefix."]})
 
 (def commands
   [{:command "status"
