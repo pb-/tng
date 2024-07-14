@@ -13,7 +13,7 @@
 
 (def version "0.7.0")
 
-(def log-file (str (System/getenv "HOME") \/ ".tasks-ng" \/ "log"))
+(def log-file (str (System/getenv "HOME") \/ ".tng" \/ "log"))
 
 (def initial-state
   {:next-id 1
