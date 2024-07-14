@@ -193,11 +193,6 @@
     (subs text 0 (string/index-of text \newline))
     text))
 
-(defn with-newline-at-eol [text]
-  (if (string/ends-with? text "\n")
-    text
-    (str text \newline)))
-
 (defn truncate [text max-length]
   (if (<= (count text) max-length)
     text
