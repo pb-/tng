@@ -11,6 +11,8 @@
   (:import [java.io FileNotFoundException]
            [java.lang ProcessHandle]))
 
+(def version "0.7.0")
+
 (def log-file (str (System/getenv "HOME") \/ ".tasks-ng" \/ "log"))
 
 (def initial-state
