@@ -307,7 +307,7 @@
      (let [id (:next-id state)
            task {:id id
                  :parent-id (:current-id state)
-                 :text text}
+                 :text (without-suffix text "\n")}
            event {:time (System/currentTimeMillis)
                   :type :task-added
                   :switch? switch?
