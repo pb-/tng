@@ -11,7 +11,7 @@
   (:import [java.io FileNotFoundException]
            [java.lang ProcessHandle]))
 
-(def version "0.8.0")
+(def version "0.8.1")
 
 (def log-file (str (System/getenv "HOME") \/ ".tng" \/ "log"))
 
@@ -275,7 +275,7 @@
 
 (defn render-tree-node
   ([state node]
-   (cons :div (render-tree-node state node 0)))
+   (cons :div (interpose "\n" (render-tree-node state node 0))))
   ([state node level]
    (let [indent (string/join (repeat (* 2 level) \space))
          id (:id node)
@@ -283,7 +283,7 @@
          options {:label-map (:labels state)
                   :selected? (= id (:current-id state))}]
      (cons
-       [:div indent (markup-task (find-task state id) options) "\n"]
+       [:div indent (markup-task (find-task state id) options)]
        (mapcat #(render-tree-node state % (inc level)) children)))))
 
 (defn tree [args state]
