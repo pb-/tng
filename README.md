@@ -2,6 +2,8 @@
 
 `tng` is an evolution of [tasks](https://github.com/pb-/tasks) with strong inspiration from [frame](https://github.com/lelanthran/frame).
 
+![A quick tng session](screenshot.png)
+
 
 ## Installation
 
