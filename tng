@@ -1,17 +1,16 @@
 #!/usr/bin/env bb
 
-(ns tasks-ng
+(ns tng
   (:require [babashka.fs :as fs]
             [babashka.process :as process]
             [clojure.java.io :as io]
-            [clojure.java.shell :as shell]
             [clojure.edn :as edn]
             [clojure.string :as string]
             [clojure.set :refer [map-invert]])
   (:import [java.io FileNotFoundException]
            [java.lang ProcessHandle]))
 
-(def version "0.8.1")
+(def version "0.8.2")
 
 (def log-file (str (System/getenv "HOME") \/ ".tng" \/ "log"))
 
@@ -254,14 +253,14 @@
        [task]))))
 
 
-(defn status [args state]
+(defn status [_ state]
   (let [message "currently on "]
     {:output [:div message (markup-task
                              (current-task state)
                              {:expand? true
                               :indent (count message)})]}))
 
-(defn stack [args state]
+(defn stack [_ state]
   {:output
    (cons
      :div
@@ -286,10 +285,10 @@
        [:div indent (markup-task (find-task state id) options)]
        (mapcat #(render-tree-node state % (inc level)) children)))))
 
-(defn tree [args state]
+(defn tree [_ state]
   {:output (render-tree-node state (task-tree (vals (:tasks state))))})
 
-(defn list- [args state]
+(defn list- [_ state]
   {:output (render-tree-node state (task-tree (vals (:tasks state)) (:current-id state)))})
 
 (defn push
@@ -318,7 +317,7 @@
 (defn create [args state]
   (push args state false))
 
-(defn pop- [args state]
+(defn pop- [_ state]
   (let [task (current-task state)]
     (cond
       (root? task) {:error? true
@@ -328,7 +327,6 @@
       :else (let [event {:time (System/currentTimeMillis)
                          :type :task-removed
                          :task-id (:current-id state)}
-                  parent-task ((:tasks state) (:parent-id task))
                   new-state (transition state event)]
               {:output [:div "back on " (markup-task (current-task new-state))]
                :events [event]}))))
@@ -344,7 +342,7 @@
     {:error? true
      :output "invalid id or label"}))
 
-(defn edit [args state]
+(defn edit [_ state]
   (if-let [text (execute-editor (:text (current-task state)))]
     (let [event {:time (System/currentTimeMillis)
                  :type :task-edited
@@ -362,7 +360,7 @@
 
 (declare commands)
 
-(defn help [args state]
+(defn help [_ _]
   {:output
    [:div
     "tng version " [:white version] " (https://github.com/pb-/tng)\n\n"
