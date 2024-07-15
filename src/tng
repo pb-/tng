@@ -213,7 +213,7 @@
                indent 0}} options
          id (:id task)
          id-markup [:blue [:bold (str \# id)]
-                    (when-let [label (label-map id)]
+                    (when-let [label (get label-map id)]
                       [:default-color "/" [:yellow [:bold label]]])]
          text (if expand?
                 (indented (:text task) (+ (length id-markup)
