@@ -10,7 +10,7 @@
   (:import [java.io FileNotFoundException]
            [java.lang ProcessHandle]))
 
-(def version "0.8.2")
+(def version "0.8.3")
 
 (def log-file (str (System/getenv "HOME") \/ ".tng" \/ "log"))
 
@@ -122,7 +122,7 @@
   (assoc s :current-id (:task-id event)))
 
 (defmethod transition :task-edited [s event]
-  (assoc-in s [:tasks (:current-id s) :text] (:text event)))
+  (assoc-in s [:tasks (:task-id event) :text] (:text event)))
 
 (defn load-state [file]
   (try
