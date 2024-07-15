@@ -1,0 +1,68 @@
+#!/usr/bin/env bb
+
+;; Import a tasks (https://github.com/pb-/tasks) database.
+;; Usage: tasks-import < ~/.tasks.json > ~/.tng/log
+;;
+;; Limitations:
+;;  * Undo twice in a row is not supported. This rarely happens in
+;;    a real database, though.
+;;  * Tasks will be considered deleted the first time their status
+;;    changes to `done` or `deleted`. Further changes to such items
+;;    are discarded.
+
+(ns tasks-import
+  (:require [clojure.java.io :as io]
+            [cheshire.core :as json]))
+
+(defn convert-time [t]
+  (long (* 1000 t)))
+
+(defn update-state [state event]
+  (let [event-type (:type event)]
+    (case event-type
+      "item-added" (conj state (:num (:item event)))
+      "item-status-changed" (if (#{"done" "deleted"} (:status event))
+                              (disj state (:num event))
+                              state)
+      state)))
+
+(defn translate [state event]
+  (let [event-type (:type event)]
+    (some->
+      (case event-type
+        "item-added" (when-not (#{"done" "deleted"} (:status (:item event)))
+                       {:type :task-added
+                        :switch? false
+                        :task {:id (:num (:item event))
+                               :parent-id 0
+                               :text (:text (:item event))}})
+        "item-status-changed" (when (and (state (:num event))
+                                         (#{"done" "deleted"} (:status event)))
+                                {:type :task-removed
+                                 :task-id (:num event)})
+        "items-reordered" nil
+        "item-edited" (when (state (:num event))
+                        {:type :task-edited
+                         :task-id (:num event)
+                         :text (:text event)})
+        (throw (ex-info "can't handle event" {:event event-type})))
+      (assoc :time (convert-time (:time event))))))
+
+(defn undo? [event]
+  (= (:type event) "undone"))
+
+(defn without-undone [events]
+  (for [[event next-event] (map vector events (concat (rest events) [nil]))
+        :let [_ (when (and (undo? event) (undo? next-event))
+                  (throw (ex-info "double undo isn't supported by this importer" {})))]
+        :when (not (or (undo? event) (undo? next-event)))]
+    event))
+
+(with-open [f (io/reader System/in)]
+  (let [raw-events (map #(json/parse-string % true) (line-seq f))]
+    (loop [events (without-undone raw-events)
+           state #{}]
+      (when-let [event (first events)]
+        (when-let [translated (translate state event)]
+          (prn translated))
+        (recur (rest events) (update-state state event))))))
