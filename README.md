@@ -109,3 +109,8 @@ switched to #32 Allow abbreviated commands
 $ tng switch f
 switched to #32 Allow abbreviated commands
 ```
+
+
+## Importing from tasks
+
+A best-effort importer from [tasks](https://github.com/pb-/tasks) is available in [contrib/](contrib/).
