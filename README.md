@@ -2,15 +2,15 @@
 
 `tng` is an evolution of [tasks](https://github.com/pb-/tasks) with strong inspiration from [frame](https://github.com/lelanthran/frame).
 
-![A quick tng session](screenshot.png)
+![A quick tng session](doc/screenshot.png)
 
 
 ## Installation
 
-[Babashka](https://babashka.org/) is required on your system to run `tng`. Otherwise simply download [`tng`](https://raw.githubusercontent.com/pb-/tng/master/tng) and make it executable:
+[Babashka](https://babashka.org/) is required on your system to run `tng`. Otherwise simply download [`tng`](https://raw.githubusercontent.com/pb-/tng/master/src/tng) and make it executable:
 
 ```shell
-$ curl https://raw.githubusercontent.com/pb-/tng/master/tng > tng
+$ curl https://raw.githubusercontent.com/pb-/tng/master/src/tng > tng
 $ chmod a+x tng
 ```
 
