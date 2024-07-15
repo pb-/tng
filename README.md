@@ -111,6 +111,25 @@ switched to #32 Allow abbreviated commands
 ```
 
 
+### `init` - create a new tng database in the current diretory
+
+```shell
+$ tng init
+database initialized
+$ tng
+currently on #0 All tasks [/tmp/.tng]
+```
+
+
+## Multiple databases
+
+By default `tng` will use `$HOME/.tng` for storage. You can specify `$TNG_HOME` to set a different database.
+
+It is also possible to create databases in any directory by running `tng init`. Similar to `git` you can then run `tng` in any sub directory and it will walk up the tree to find the first database.
+
+Look at the root task (#0) to see which database is being used.
+
+
 ## Importing from tasks
 
 A best-effort importer from [tasks](https://github.com/pb-/tasks) is available in [contrib/](contrib/).

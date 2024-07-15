@@ -8,11 +8,26 @@
             [clojure.string :as string]
             [clojure.set :refer [map-invert]])
   (:import [java.io FileNotFoundException]
+           [java.nio.file FileAlreadyExistsException]
            [java.lang ProcessHandle]))
 
-(def version "0.8.3")
+(def version "0.9.0")
 
-(def log-file (str (System/getenv "HOME") \/ ".tng" \/ "log"))
+(defn tng-home
+  ([]
+   (let [explicit-home (System/getenv "TNG_HOME")]
+     (if (string/blank? explicit-home )
+       (tng-home (fs/cwd))
+       explicit-home)))
+  ([path]
+   (let [candidate (str path \/ ".tng")]
+     (if (fs/directory? candidate)
+       candidate
+       (if (= (str path) "/")
+         (str (fs/home) \/ ".tng")
+         (tng-home (fs/parent path)))))))
+
+(def log-file (str (tng-home) \/ "log"))
 
 (def initial-state
   {:next-id 1
@@ -227,6 +242,8 @@
       (if selected?
         [:white [:bold "> " text]]
         [:white text])
+      (when (root? task)
+        [:default-color " [" (tng-home) "]"])
       (when (and (multi-line? (:text task)) (not expand?))
         [:gray [:bold "  [+]"]])])))
 
@@ -358,6 +375,14 @@
     {:error? true
      :output "editor aborted"}))
 
+(defn init-db [_ _]
+  (try
+    (fs/create-dir (str (fs/cwd) \/ ".tng"))
+    {:output "database initialized"}
+    (catch FileAlreadyExistsException _
+      {:error? true
+       :output "cannot initialize database: already exists in the current directory"})))
+
 (declare commands)
 
 (defn help [_ _]
@@ -369,7 +394,10 @@
     "Commands can be abbreviated by typing a unique prefix."]})
 
 (def commands
-  [{:command "status"
+  [{:command "init"
+    :fn init-db
+    :help "create a fresh tng database in the current directory (optional)"}
+   {:command "status"
     :fn status
     :help "show the currently selected task in full detail (default command)"}
    {:command "push"
